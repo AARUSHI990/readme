@@ -1,0 +1,328 @@
+DETAILED SUMMARY
+
+`ExpensoApp.swift` is the main entry point of the Expenso application. This file is mainly responsible for initializing the application, setting default preferences, configuring Core Data, and deciding which screen should be displayed when the application launches.
+
+First, we import `SwiftUI` because the application is built using SwiftUI, and we import `CoreData` because the application uses Core Data for persistent storage.
+
+Then we have:
+
+```swift
+@main
+struct ExpensoApp: App
+```
+
+The `@main` attribute indicates that this is the entry point of the application. The `ExpensoApp` structure conforms to the SwiftUI `App` protocol, which allows us to define the application's main scene and startup behavior.
+
+Inside the initializer:
+
+```swift
+init() {
+    self.setDefaultPreferences()
+}
+```
+
+we call `setDefaultPreferences()`. This function checks whether a currency preference has already been stored in `UserDefaults`.
+
+`UserDefaults` is used to store small pieces of application settings or preferences. Here, we check for the `UD_EXPENSE_CURRENCY` key. If no currency has been stored yet, we set the default currency to `$`.
+
+Next, we have the `body` property, which defines the application's main scene:
+
+```swift
+var body: some Scene {
+    WindowGroup {
+```
+
+`WindowGroup` represents the main application window in SwiftUI.
+
+Inside the `WindowGroup`, we check whether biometric authentication has been enabled:
+
+```swift
+if UserDefaults.standard.bool(forKey: UD_USE_BIOMETRIC)
+```
+
+This reads the `UD_USE_BIOMETRIC` preference from `UserDefaults`.
+
+If it returns `true`, we display:
+
+```swift
+AuthenticateView(viewModel: AuthenticationViewModel())
+```
+
+So the user has to go through the authentication screen first.
+
+If biometric authentication is disabled, we directly display:
+
+```swift
+ExpenseView()
+```
+
+which is the main screen of the application.
+
+Both `AuthenticateView` and `ExpenseView` receive:
+
+```swift
+.environment(\.managedObjectContext, persistentContainer.viewContext)
+```
+
+This is how we make the Core Data managed object context available to the views through SwiftUI's environment. Because of this, child views such as `AddExpenseView` can access the same Core Data context using `@Environment`.
+
+Finally, we have the `persistentContainer`, which sets up the Core Data stack:
+
+```swift
+var persistentContainer: NSPersistentContainer = {
+```
+
+We create an `NSPersistentContainer` using the Core Data model named `Expenso`.
+
+Then:
+
+```swift
+container.loadPersistentStores(...)
+```
+
+loads the persistent store, which is where the application's Core Data information is stored.
+
+If an error occurs while loading the persistent store, the code calls `fatalError()` because the application cannot properly operate without its data store.
+
+If everything is successful, we return the configured container.
+
+So, overall, this file has four main responsibilities:
+
+1. It acts as the **entry point** of the application.
+2. It sets **default application preferences**, such as the currency.
+3. It decides whether to show the **authentication screen or the main expense screen**.
+4. It initializes **Core Data and makes the managed object context available throughout the SwiftUI view hierarchy**.
+
+The important flow is:
+
+`App launches → set default preferences → configure Core Data → check biometric preference → show AuthenticateView or ExpenseView → provide Core Data context to the views.`
+
+2.`ExpenseView.swift` is the main dashboard file of the Expenso application. Its main responsibility is to fetch transaction data from Core Data, filter it based on time, calculate income, expenses, and balance, and display the transactions to the user.
+
+The main `ExpenseView` uses `@Environment` to access the Core Data managed object context and `@FetchRequest` to fetch transactions. It also uses `@State` variables to manage filters, option sheets, and navigation to Settings and About screens.
+
+The dashboard contains a toolbar where the user can select a time filter such as Overall, Last 7 days, or Last 30 days. It also provides options to open the About and Settings screens. The plus button allows the user to navigate to `AddExpenseView` and add a new transaction.
+
+`ExpenseMainView` is responsible for displaying the main dashboard content. It creates a Core Data fetch request depending on the selected filter. For time-based filters, it uses `NSPredicate` to fetch only transactions within the required date range. It also calculates the total balance by adding income and subtracting expenses.
+
+`ExpenseModelView` displays the total amount of either income or expenses. It also uses Core Data filtering so that the displayed total changes according to the selected time period.
+
+`ExpenseTransView` displays each individual transaction. It shows the transaction's category icon, title, amount, category, and date. Income is displayed with a plus sign and green color, while expenses are displayed with a minus sign and red color.
+
+The file also uses `@AppStorage` to read the saved currency preference from `UserDefaults`, which is then displayed along with the transaction amounts.
+
+Overall, `ExpenseView.swift` works as the dashboard layer of the application. It connects the Core Data transaction data with the SwiftUI interface and provides filtering, balance calculation, transaction summaries, and navigation to other screens.
+
+
+3.`AddExpenseView.swift` is the screen used to add a new transaction or edit an existing transaction in the Expenso application. It mainly handles the user interface, while the actual transaction logic is handled by `AddExpenseViewModel`.
+
+The file uses `@Environment` to access the presentation mode and the Core Data managed object context. It also uses `@State` for local UI states such as the delete confirmation and attachment sheet. `@StateObject` is used for the `AddExpenseViewModel`, which manages the transaction data and business logic.
+
+The file contains two option lists: `typeOptions` for selecting Income or Expense, and `tagOptions` for selecting categories such as Food, Transport, Medical, Housing, and others.
+
+Inside the `body`, the screen uses a `NavigationView` and `ZStack`. The toolbar changes depending on whether the screen is adding or editing a transaction. If there is no existing transaction, it shows "Add Transaction". If an existing transaction is being edited, it shows "Edit Transaction" and also provides a delete option.
+
+The user can enter the transaction title and amount, select the transaction type and category, choose the date and time, and enter an optional note. The amount field uses a decimal keyboard.
+
+The screen also provides an option to attach an image. If an image is already attached, it is displayed on the screen, and the user can select it to remove the attachment.
+
+At the bottom, there is an Add/Edit button. The button text is provided by the ViewModel through `getButtText()`, and when the user taps it, `saveTransaction()` is called to save the transaction to Core Data.
+
+The screen also displays alerts for validation errors and shows a delete confirmation before deleting an existing transaction.
+
+Finally, `onReceive(viewModel.$closePresenter)` listens for a signal from the ViewModel. When the transaction is successfully saved or deleted, the ViewModel changes `closePresenter`, and the screen automatically dismisses itself.
+
+Overall, `AddExpenseView.swift` is mainly responsible for the **transaction input UI, user interactions, navigation, alerts, image attachment, and communication with the ViewModel**. The ViewModel handles the actual saving, editing, validation, and deletion logic.
+
+
+4.`AddExpenseViewModel.swift` contains the main logic for adding, editing, validating, saving, and deleting transactions in the Expenso application. It works together with `AddExpenseView`, which is mainly responsible for displaying the UI.
+
+The class conforms to `ObservableObject`, which allows SwiftUI to observe changes in the ViewModel. The transaction properties are marked with `@Published`, so when their values change, the connected UI can update automatically.
+
+The `expenseObj` property stores the existing `ExpenseCD` object when the user is editing a transaction. If it is `nil`, the ViewModel treats the operation as creating a new transaction.
+
+The initializer receives an optional `ExpenseCD`. If an existing transaction is provided, it loads its title, amount, type, category, date, note, and attached image into the ViewModel. If no transaction is provided, it sets default values for a new transaction.
+
+The initializer also sets up the image picker callback. When the user selects an image, the ViewModel stores the image and marks `imageUpdated` as true.
+
+The `getButtText()` function decides what text should appear on the main button, such as "ADD INCOME", "EDIT INCOME", "ADD EXPENSE", or "EDIT EXPENSE".
+
+The `attachImage()` function opens the image attachment options, while `removeImage()` removes the currently attached image.
+
+The main `saveTransaction()` function handles both adding and editing transactions. First, it removes unnecessary spaces from the title and amount. Then it validates the input by checking that the title and amount are not empty, that the amount is a valid number, that it is not negative, and that it does not exceed the maximum allowed amount.
+
+After validation, the function checks whether `expenseObj` already exists. If it exists, the existing Core Data object is updated. If it does not exist, a new `ExpenseCD` object is created using the managed object context.
+
+The transaction's type, title, tag, date, note, amount, and update date are then assigned. If an image is attached, it is converted into JPEG data before being stored in Core Data.
+
+Finally, `managedObjectContext.save()` saves the changes to Core Data. If the save succeeds, `closePresenter` is set to true, which tells `AddExpenseView` to close the screen. If an error occurs, the error message is displayed through an alert.
+
+The `deleteTransaction()` function handles deleting an existing transaction. It first checks that an `expenseObj` exists, deletes it from the managed object context, and saves the changes. If successful, it also sets `closePresenter` to true.
+
+Overall, `AddExpenseViewModel.swift` is responsible for the **business logic and data handling behind the Add/Edit Transaction screen**, including loading existing data, validation, image handling, creating or updating Core Data objects, saving, and deleting transactions.
+
+
+5.`AuthenticateView.swift` is the authentication screen of the Expenso application. It is displayed when biometric authentication is enabled, such as Face ID or Touch ID.
+
+The file imports `SwiftUI` for the user interface and `LocalAuthentication` for biometric authentication support.
+
+The `AuthenticateView` uses `@ObservedObject` to connect with `AuthenticationViewModel`. The ViewModel contains the actual authentication logic, while this view is mainly responsible for displaying the authentication UI.
+
+Inside the `body`, a `NavigationView` and `ZStack` are used for the screen layout. The screen displays the application icon, a message saying that Expenso is locked, and an "Unlock" button.
+
+The `NavigationLink` uses `viewModel.didAuthenticate` to control navigation. When authentication is successful and `didAuthenticate` becomes true, the user is taken to `ExpenseView`, which is the main dashboard.
+
+When the user presses the Unlock button, `viewModel.authenticate()` is called. This starts the biometric authentication process.
+
+The view also calls `viewModel.authenticate()` inside `onAppear`. This means authentication is automatically attempted when the authentication screen appears, without requiring the user to press the button first.
+
+The authentication logic itself is not written directly inside this view. Instead, it is handled by `AuthenticationViewModel`, keeping the UI and business logic separated.
+
+Overall, `AuthenticateView.swift` is responsible for the **authentication UI, starting the authentication process, and navigating to the main dashboard after successful authentication.**
+
+6.`AuthenticationViewModel.swift` contains the logic for biometric authentication in the Expenso application. It works together with `AuthenticateView`, where the ViewModel handles the authentication process and the View displays the UI.
+
+The class conforms to `ObservableObject`, which allows it to be used with SwiftUI and observed by the view.
+
+The `cancellableBiometricTask` property stores the Combine subscription returned by the biometric authentication process. It allows the asynchronous authentication task to be managed and cancelled when necessary.
+
+The ViewModel also contains `didAuthenticate`, `showAlert`, and `alertMessage`. `didAuthenticate` indicates whether authentication was successful, while `showAlert` and `alertMessage` are used to handle authentication errors.
+
+The main function is `authenticate()`. First, it resets the previous authentication state and clears any old error message.
+
+Then it calls `BiometricAuthUtlity.shared.authenticate()`, which starts the actual biometric authentication process. The result is handled using Combine.
+
+`receive(on: DispatchQueue.main)` makes sure that the result is handled on the main thread because the result changes UI-related properties.
+
+The `sink` method handles two possible outcomes. If authentication fails, the failure block sets `showAlert` to true and stores the error description in `alertMessage`. If authentication succeeds, the success block sets `didAuthenticate` to true.
+
+`AuthenticateView` observes `didAuthenticate`. When it becomes true, the view navigates to `ExpenseView`, which is the main dashboard.
+
+Finally, `deinit` is called when the ViewModel is removed from memory. It sets the Combine subscription to `nil`, helping release the subscription.
+
+Overall, `AuthenticationViewModel.swift` is responsible for the **actual biometric authentication logic, handling success and failure, managing the Combine subscription, and communicating.
+
+7.`ExpenseView.swift` is the main dashboard screen of the Expenso application. It is responsible for displaying the user's transactions, total balance, income, expenses, and recent transaction history.
+
+The main `ExpenseView` gets the Core Data managed object context using `@Environment` and fetches transaction records using `@FetchRequest`. It also uses `@State` variables to control the selected time filter and different navigation or action sheets.
+
+The dashboard toolbar provides two main options. One option allows the user to filter transactions by Overall, Last 7 days, or Last 30 days. The other option allows the user to open the About or Settings screens. There is also a plus button that navigates to `AddExpenseView` so the user can add a new transaction.
+
+`ExpenseMainView` contains the main dashboard information. It creates a `FetchRequest` based on the selected filter. If the filter is Overall, it fetches all transactions. If a time filter is selected, it uses `NSPredicate` to fetch transactions only within the required date range.
+
+The `getTotalBalance()` function calculates the user's balance. It adds the amount when the transaction is income and subtracts the amount when the transaction is an expense.
+
+If there are no transactions, the screen displays a "No Transaction Yet!" message. Otherwise, it displays the total balance, income and expense summary cards, and the list of recent transactions.
+
+`ExpenseModelView` is used for the income and expense summary cards. It filters transactions based on their type and the selected time period, then calculates the total amount using `getTotalValue()`.
+
+`ExpenseTransView` represents an individual transaction in the recent transaction list. It displays the transaction's category icon, title, amount, category, and date. Income is shown with a plus sign and green color, while expenses are shown with a minus sign and red color.
+
+The file also uses `@AppStorage` to retrieve the saved currency from `UserDefaults`, so the currency symbol can be displayed with the transaction amounts.
+
+Navigation is also handled in this file. The user can navigate to Settings, About, Add Transaction, filtered income or expense lists, and the detailed view of a particular transaction.
+
+Overall, `ExpenseView.swift` acts as the **main dashboard and presentation layer** of the application. It gets transaction data from Core Data, applies filters.
+
+8.`ExpenseDetailedView.swift` is responsible for displaying the complete details of a selected transaction. It is opened when the user taps a transaction from the dashboard.
+
+The view uses `@Environment` to access the presentation mode and the Core Data managed object context. It also uses `@ObservedObject` to connect with `ExpenseDetailedViewModel`, which handles the transaction-related logic. `@AppStorage` is used to get the saved currency preference.
+
+The initializer receives an `ExpenseCD` object and passes it to `ExpenseDetailedViewModel`. This allows the screen to display the details of the selected transaction.
+
+The toolbar contains options to go back, delete the transaction, and share the transaction. When the delete button is pressed, a confirmation alert is displayed. If the user confirms, `deleteNote()` is called from the ViewModel to delete the transaction from Core Data.
+
+The main content is displayed inside a `ScrollView`. It shows the transaction's title, amount, transaction type, tag, date and time, and note if a note exists. If the transaction has an attached image, the image is also displayed.
+
+`ExpenseDetailedListView` is a reusable small view used to display each detail as a title and description. For example, it can display "Title" followed by the transaction title, or "Amount" followed by the transaction amount.
+
+At the bottom of the screen, there is an Edit button. When the user taps it, the existing transaction is passed to `AddExpenseViewModel`, and the user is navigated to `AddExpenseView` where the transaction can be edited.
+
+Overall, `ExpenseDetailedView.swift` is responsible for the **complete transaction details screen**, including displaying transaction information, showing attachments, deleting and sharing the transaction, and navigating to the edit screen.
+
+9.`ExpenseDetailedViewModel` is the ViewModel for the transaction details screen. Its main responsibility is to handle the logic for the selected transaction, such as deleting it and sharing its information.
+
+The class conforms to `ObservableObject`, so the SwiftUI view can observe changes from the ViewModel. The `expenseObj` property is marked with `@Published` and contains the `ExpenseCD` object representing the selected transaction.
+
+There are also three `@Published` properties used for UI state: `alertMsg` stores an error message, `showAlert` controls whether an alert should be displayed, and `closePresenter` tells the view when the current screen should be closed.
+
+The initializer receives an `ExpenseCD` object from `ExpenseDetailedView` and stores it in `expenseObj`. This means the ViewModel works with the exact transaction that the user selected.
+
+The `deleteNote()` function handles deletion. It receives the Core Data `NSManagedObjectContext`, deletes the selected `expenseObj`, and then calls `save()` to persist the deletion. If the save succeeds, it sets `closePresenter` to `true`, which can be used by the UI to dismiss the screen. If saving fails, the error is stored in `alertMsg` and `showAlert` is set to `true`.
+
+The `shareNote()` function prepares the transaction information as a formatted string. It includes the title, amount with the saved currency, transaction type, category, date, and note. It then creates a `UIActivityViewController`, which is the iOS share sheet, and presents it so the user can share the transaction details through available apps.
+
+So overall, this ViewModel separates the transaction-detail logic from the UI. The view is responsible for displaying the information and buttons, while this ViewModel handles the selected Core Data object, deletion, error handling, and sharing.
+
+
+10.``ExpenseFilterView` is the screen used to view transactions based on a specific type, such as Income or Expense, or based on a category/tag such as Food, Transport, or Medical.
+
+At the top level, `ExpenseFilterView` gets the Core Data managed object context using `@Environment` and also has a `@FetchRequest` for transaction data. It uses `@State` for the currently selected time filter and for controlling the filter action sheet.
+
+The view accepts two optional parameters: `isIncome` and `categTag`. These determine what kind of filtered screen is being displayed. For example, if `isIncome` is true, the screen shows Income transactions. If it is false, it shows Expense transactions. If a category tag is provided, it shows transactions belonging to that category.
+
+The `getToolbarTitle()` function decides the title shown in the toolbar. It returns "Income" or "Expense" when the screen is opened for a transaction type. If a category is provided, it converts the category key into a readable title. Otherwise, it returns "Dashboard".
+
+The filter button opens an `ActionSheet` with three time options: Overall, Last 7 days, and Last 30 days. Selecting an option changes the `filter` state, which causes the displayed data to update.
+
+Inside the main body, if the screen is opened for Income or Expense, it displays `ExpenseFilterChartView` followed by `ExpenseFilterTransList`. The chart shows the total amount and groups the transactions by category.
+
+If the screen is opened for a category, it displays two `ExpenseModelView` cards showing the Income and Expense totals for that category, followed by the filtered transaction list.
+
+`ExpenseFilterChartView` is responsible for creating the data used by the chart. It determines whether the transactions are Income or Expense, creates a Core Data `FetchRequest`, and applies a time-based `NSPredicate` when a filter is selected. `getTotalValue()` calculates the total amount of the fetched transactions. `getChartModel()` groups transactions by their tag and adds their amounts together, then converts that information into `ChartModel` objects used by `ChartView`.
+
+`ExpenseFilterTransList` is responsible for displaying the actual transactions. It creates a `FetchRequest` based on the selected type, category, and time range. It uses `NSPredicate` to filter the Core Data records and sorts them by `occuredOn` in descending order, so the newest transactions appear first. Each transaction is displayed using `ExpenseTransView` and can be tapped to open `ExpenseDetailedView`.
+
+Overall, this file provides the filtering and analysis screen of the app. It connects Core Data with the selected filters, calculates totals, generates chart data, and displays the matching transactions.
+
+11.`ExpenseCSVModel` is a simple model class used to hold expense or transaction data in a format suitable for CSV handling.
+
+The class inherits from `NSObject`, which provides basic Objective-C compatibility and standard object behavior.
+
+It contains six string properties: `title`, `amount`, `transactionType`, `tag`, `occuredOn`, and `note`. These properties represent the main information of a transaction, such as its title, amount, whether it is income or expense, its category, date, and optional note.
+
+All properties are initialized with empty strings, so the object starts with default values instead of nil.
+
+This model does not contain any business logic, Core Data operations, or UI code. Its main purpose is to act as a simple data container, most likely when converting transaction information into CSV rows or preparing transaction data for export.
+
+So, `ExpenseCSVModel` separates the CSV/export representation of a transaction from the actual Core Data model.
+
+12.`ExpenseSettingsView` is the Settings screen of the Expenso app. Its main responsibility is to provide the user with application preferences such as biometric security, currency selection, and transaction export.
+
+The view uses `@Environment(\.presentationMode)` to dismiss the Settings screen and `@Environment(\.managedObjectContext)` to access the Core Data context. It also uses an `ExpenseSettingsViewModel` to handle the settings-related logic, while `@State` is used to control whether the currency selection action sheet is displayed.
+
+At the top, the screen contains a toolbar with the title "Settings" and a back action.
+
+The first setting is biometric authentication. The text uses `viewModel.getBiometricType()` to display the available biometric type, such as Face ID or Touch ID, and the `Toggle` is bound to `viewModel.enableBiometric`. When the user changes the toggle, the ViewModel can handle the biometric preference.
+
+The currency section is a button that displays the currently selected currency. When the user taps it, an `ActionSheet` appears containing the currencies from `CURRENCY_LIST`. Selecting a currency calls `viewModel.saveCurrency(currency:)`, which handles saving the selected currency.
+
+The "Export transactions" button calls `viewModel.exportTransactions(moc:)` and passes the Core Data managed object context. This allows the ViewModel to retrieve transaction data and handle the export process.
+
+At the bottom, there is a check/tick button that dismisses the Settings screen.
+
+The view also contains an alert that is controlled by `viewModel.showAlert`. If an error or message occurs in the ViewModel, `viewModel.alertMsg` is displayed to the user.
+
+Overall, `ExpenseSettingsView` is mainly the UI layer for application settings. It displays the controls and sends user actions to `ExpenseSettingsViewModel`, while the ViewModel handles the actual settings, persistence, and export logic.
+
+13.`ExpenseSettingsViewModel` is the ViewModel responsible for handling the business logic of the Settings screen. It manages biometric authentication, currency preferences, transaction export, CSV generation, and error handling.
+
+The class conforms to `ObservableObject`, so SwiftUI can observe its published properties. It maintains `csvModelArr`, which is an array of `ExpenseCSVModel` objects used when preparing transactions for CSV export. It also has a `cancellableBiometricTask` to store the Combine subscription returned by the biometric authentication process.
+
+The `currency` property is initialized from `UserDefaults`, so the previously selected currency is loaded when the ViewModel is created. The `enableBiometric` property also reads its initial value from `UserDefaults`. It has a `didSet` observer, so whenever the value changes, it either starts biometric authentication or saves `false` to `UserDefaults`.
+
+The `authenticate()` function handles biometric authentication. It calls `BiometricAuthUtlity.shared.authenticate()`, receives the result on the main thread, and uses Combine's `sink` to handle success or failure. If authentication fails, it shows an alert and disables the biometric setting. If authentication succeeds, it stores `true` in `UserDefaults`.
+
+The `getBiometricType()` function checks what biometric authentication is available on the device using `LAContext`. It determines whether the device supports Face ID, Touch ID, or neither, and returns the appropriate display name.
+
+The `saveCurrency()` function updates the ViewModel's currency property and saves the selected currency to `UserDefaults`, allowing the preference to persist after the app is closed.
+
+The `exportTransactions()` function handles retrieving transactions from Core Data. It creates a fetch request, gets all `ExpenseCD` objects using the managed object context, and checks whether there is any data to export. For each transaction, it creates an `ExpenseCSVModel` and copies the required information such as title, amount, transaction type, category, date, and note. After preparing the models, it calls `generateCSV()`.
+
+The `generateCSV()` function creates the actual CSV file. It defines the CSV header, loops through the `csvModelArr` array, creates a CSV row for each transaction, and writes the resulting text to a temporary file called `Expense.csv`. After creating the file, it uses `UIActivityViewController` to open the iOS share sheet so the user can share or save the exported CSV file.
+
+The ViewModel also handles errors by storing error messages in `alertMsg` and setting `showAlert` to `true`, which allows the Settings view to display an alert.
+
+Finally, `deinit` clears the biometric Combine subscription when the ViewModel is removed from memory.
+
+Overall, `ExpenseSettingsViewModel` contains the main logic behind the Settings screen: it manages persistent preferences with UserDefaults, performs biometric authentication, reads transaction data from Core Data, converts it into CSV data, creates the CSV file, and presents it for sharing.
